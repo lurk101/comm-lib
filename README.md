@@ -1,5 +1,5 @@
 # Pico network protocol stack, physical, data link and network layers.
-![multi pico carrier](images/board.png)
+To be included as project submodule.
 
 Physical layer
 

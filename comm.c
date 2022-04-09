@@ -182,7 +182,7 @@ static void init_core1(void) {
     gpio_pull_up(ID1_GPIO);
     gpio_set_dir(ID0_GPIO, GPIO_IN);
     gpio_set_dir(ID1_GPIO, GPIO_IN);
-    busy_wait_us_32(10);
+    busy_wait_us_32(1000);
     node_id = gpio_get(ID0_GPIO) | (gpio_get(ID1_GPIO) << 1);
 
     // 32 bit PIO UART

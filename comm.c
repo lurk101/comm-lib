@@ -22,6 +22,7 @@
 #include "pico/sync.h"
 
 #define PACKED __attribute__((__packed__))
+#define ASM(x) __asm__ volatile(x)
 
 #define PIO pio0       // TX/RX PIO
 #define SM_CLK_DIV 4   // 125 MHz / 4 = 31.25 MHz (8 clks / bit)
@@ -154,6 +155,7 @@ static void dma_irq0_handler(void) {
         forward(rx_buf);
         start_rx(); // restart rx for next message length
         start_tx(); // restart tx if not already started
+        ASM("dmb ish");
         spin_unlock(lock, msk);
     }
     // handle transmit
@@ -164,6 +166,7 @@ static void dma_irq0_handler(void) {
             enq(&free_q, tx_buf);
         tx_bsy = 0;
         start_tx(); // restart TX if more left
+        ASM("dmb ish");
         spin_unlock(lock, msk);
     }
 }
@@ -253,6 +256,7 @@ static void init_core1(void) {
     lock = spin_lock_init(spin_lock_claim_unused(true));
     uint msk = spin_lock_blocking(lock);
     start_rx();
+    ASM("dmb ish");
     spin_unlock(lock, msk);
     multicore_fifo_push_blocking(0); // tell core 0 we're ready
 
@@ -279,6 +283,7 @@ void comm_transmit(int to, const void* buffer, int length) {
         length = COMM_PKT_SIZE;
     uint msk = spin_lock_blocking(lock);
     buf_t* buf = get_buffer();
+    ASM("dmb ish");
     spin_unlock(lock, msk);
     buf->pkt.length = length;
     buf->pkt.from = node_id;
@@ -289,6 +294,7 @@ void comm_transmit(int to, const void* buffer, int length) {
     msk = spin_lock_blocking(lock);
     forward(buf);
     start_tx();
+    ASM("dmb ish");
     spin_unlock(lock, msk);
 }
 
@@ -301,6 +307,7 @@ int comm_receive_blocking(int* from, void* buffer, int buf_length) {
         tight_loop_contents();
     uint msk = spin_lock_blocking(lock);
     buf_t* buf = deq(&rx_q);
+    ASM("dmb ish");
     spin_unlock(lock, msk);
     if (from)
         *from = buf->pkt.from;
@@ -311,6 +318,7 @@ int comm_receive_blocking(int* from, void* buffer, int buf_length) {
         memcpy(buffer, buf->pkt.data, l);
     msk = spin_lock_blocking(lock);
     enq(&free_q, buf);
+    ASM("dmb ish");
     spin_unlock(lock, msk);
     return l;
 }

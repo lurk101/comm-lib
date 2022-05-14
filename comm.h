@@ -47,6 +47,7 @@ extern "C" {
 // Return: none
 //
 void comm_init(void (*idle)(void));
+void comm_init_from_core1(void (*rx_interrupt_hook)(int intrpt));
 
 // Send a packet.
 // Parameters:

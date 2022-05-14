@@ -59,6 +59,7 @@ static q_t free_q, tx_q, rx_q;          // free buffer pool, tx & rx queues
 static buf_t *tx_buf, *rx_buf;          // current receive and transmit buffer
 static volatile int tx_bsy;             // transmitter busy status
 static void (*idle_handler)(void) = NULL; // core1 idle call
+static void (*rx_hook)(int) = NULL;       // application rx signalling
 
 // Low level functions. Must be called with lock held.
 
@@ -120,10 +121,12 @@ static void start_rx(void) {
 }
 
 // Direct incoming packet to the appropriate destination
-static void forward(buf_t* buf) {
-    if (buf->pkt.to == node_id)
+static bool forward(buf_t* buf) {
+    bool enq_rx = false;
+    if (buf->pkt.to == node_id) {
         enq(&rx_q, buf);
-    else {
+        enq_rx = true;
+    } else {
         if (buf->pkt.hops == 0)
             enq(buf->pkt.to == COMM_NODES ? &rx_q : &free_q, buf);
         else {
@@ -132,10 +135,12 @@ static void forward(buf_t* buf) {
                 // make a copy and q it to receive q
                 memcpy(&buf2->pkt, &buf->pkt, sizeof(pkt_t) + buf->pkt.length);
                 enq(&rx_q, buf2);
+                enq_rx = true;
             }
             enq(&tx_q, buf); // enq for retransmission
         }
     }
+    return enq_rx;
 }
 
 // End of functions called with lock
@@ -151,7 +156,8 @@ static void dma_irq0_handler(void) {
         rx_buf->pkt.hops--;
         // forward the message
         uint msk = spin_lock_blocking(lock);
-        forward(rx_buf);
+        if (forward(rx_buf) && rx_hook)
+            rx_hook(1);
         start_rx(); // restart rx for next message length
         start_tx(); // restart tx if not already started
         spin_unlock(lock, msk);
@@ -176,7 +182,8 @@ static void common_rx_dma_config(dma_channel_config* c) {
     channel_config_set_dreq(c, pio_get_dreq(PIO, rx_sm, false));
 }
 
-static void init_core1(void) {
+void comm_init_from_core1(void (*rx_interrupt_hook)(int)) {
+    rx_hook = rx_interrupt_hook;
     // read node id
     gpio_pull_up(ID0_GPIO);
     gpio_pull_up(ID1_GPIO);
@@ -254,6 +261,10 @@ static void init_core1(void) {
     uint msk = spin_lock_blocking(lock);
     start_rx();
     spin_unlock(lock, msk);
+}
+
+static void init_core1(void) {
+    comm_init_from_core1(NULL);
     multicore_fifo_push_blocking(0); // tell core 0 we're ready
 
     // init complete, enter forever idle loop
@@ -287,7 +298,8 @@ void comm_transmit(int to, const void* buffer, int length) {
     if (length)
         memcpy(buf->pkt.data, buffer, length);
     msk = spin_lock_blocking(lock);
-    forward(buf);
+    if (forward(buf) && rx_hook)
+        rx_hook(0);
     start_tx();
     spin_unlock(lock, msk);
 }

@@ -24,11 +24,11 @@
 #define PACKED __attribute__((__packed__))
 
 #define PIO pio0       // TX/RX PIO
-#define SM_CLK_DIV 4   // 125 MHz / 4 = 31.25 MHz (8 clks / bit)
+#define SM_CLK_DIV 2   // 125 MHz / 2
 #define ID0_GPIO 10    // bit 0 of node id
 #define ID1_GPIO 11    // bit 1 of 2 bit node id
-#define TX_GPIO 12     // pio UART TX pin
-#define RX_GPIO 13     // pio UART RX pin
+#define TX0_GPIO 2     // pio UART TX pin
+#define RX0_GPIO 6     // pio UART RX pin
 
 // Packet header
 typedef struct PACKED {
@@ -182,41 +182,66 @@ static void common_rx_dma_config(dma_channel_config* c) {
     channel_config_set_dreq(c, pio_get_dreq(PIO, rx_sm, false));
 }
 
+static void wait_for(int n) {
+    while (gpio_get(RX0_GPIO) != n)
+        ;
+}
+
 void comm_init_from_core1(void (*rx_interrupt_hook)(int)) {
     rx_hook = rx_interrupt_hook;
     // read node id
-    gpio_pull_up(ID0_GPIO);
-    gpio_pull_up(ID1_GPIO);
     gpio_set_dir(ID0_GPIO, GPIO_IN);
     gpio_set_dir(ID1_GPIO, GPIO_IN);
-    busy_wait_us_32(1000);
     node_id = gpio_get(ID0_GPIO) | (gpio_get(ID1_GPIO) << 1);
+
+    // sync (get all nodes up and ready)
+    gpio_init(RX0_GPIO);
+    gpio_init(TX0_GPIO);
+    gpio_set_dir(RX0_GPIO, GPIO_IN);
+    gpio_set_dir(TX0_GPIO, GPIO_IN);
+    if (node_id != 0) {
+        gpio_put(TX0_GPIO, 0);
+        gpio_set_dir(TX0_GPIO, GPIO_OUT);
+        wait_for(0);
+        gpio_put(TX0_GPIO, 1);
+        wait_for(1);
+    } else {
+        wait_for(0);
+        gpio_put(TX0_GPIO, 0);
+        gpio_set_dir(TX0_GPIO, GPIO_OUT);
+        wait_for(1);
+        gpio_put(TX0_GPIO, 1);
+    }
 
     // 32 bit PIO UART
     // TX pio
-    gpio_pull_up(RX_GPIO);
-    busy_wait_us(1000);
     tx_sm = pio_claim_unused_sm(PIO, true);
-    pio_sm_set_pins_with_mask(PIO, tx_sm, 1u << TX_GPIO, 1u << TX_GPIO);
-    pio_sm_set_pindirs_with_mask(PIO, tx_sm, 1u << TX_GPIO, 1u << TX_GPIO);
-    pio_gpio_init(PIO, TX_GPIO);
+    pio_gpio_init(PIO, TX0_GPIO);
+    pio_gpio_init(PIO, TX0_GPIO + 1);
+    pio_gpio_init(PIO, TX0_GPIO + 2);
+    pio_gpio_init(PIO, TX0_GPIO + 3);
+    pio_sm_set_pins_with_mask(PIO, tx_sm, 0xf << TX0_GPIO, 0xf << TX0_GPIO);
+    pio_sm_set_pindirs_with_mask(PIO, tx_sm, 0xf << TX0_GPIO, 0xf << TX0_GPIO);
     uint offset = pio_add_program(PIO, &uart_tx_program);
     pio_sm_config p = uart_tx_program_get_default_config(offset);
     sm_config_set_out_shift(&p, true, false, 32);
-    sm_config_set_out_pins(&p, TX_GPIO, 1);
-    sm_config_set_sideset_pins(&p, TX_GPIO);
+    sm_config_set_out_pins(&p, TX0_GPIO, 4);
+    sm_config_set_sideset_pins(&p, TX0_GPIO);
     sm_config_set_clkdiv(&p, SM_CLK_DIV);
     pio_sm_init(PIO, tx_sm, offset, &p);
     pio_sm_set_enabled(PIO, tx_sm, true);
 
     // RX pio
     rx_sm = pio_claim_unused_sm(PIO, true);
-    pio_sm_set_consecutive_pindirs(PIO, rx_sm, RX_GPIO, 1, false);
-    pio_gpio_init(PIO, RX_GPIO);
-    gpio_pull_up(RX_GPIO);
+    pio_gpio_init(PIO, RX0_GPIO);
+    pio_gpio_init(PIO, RX0_GPIO + 1);
+    pio_gpio_init(PIO, RX0_GPIO + 2);
+    pio_gpio_init(PIO, RX0_GPIO + 3);
+    pio_sm_set_consecutive_pindirs(PIO, rx_sm, RX0_GPIO, 4, false);
+    pio_sm_set_pindirs_with_mask(PIO, rx_sm, 0, 0xf << RX0_GPIO);
     offset = pio_add_program(PIO, &uart_rx_program);
     p = uart_rx_program_get_default_config(offset);
-    sm_config_set_in_pins(&p, RX_GPIO); // for WAIT, IN
+    sm_config_set_in_pins(&p, RX0_GPIO);  // for WAIT, IN
     // Shift to right, autopush enabled
     sm_config_set_in_shift(&p, true, true, 32);
     // SM transmits 1 bit per 8 execution cycles.

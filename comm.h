@@ -46,8 +46,8 @@ extern "C" {
 //    idle - function pointer to core1 idle handler, NULL = none
 // Return: none
 //
-void comm_init(void (*idle)(void));
-void comm_init_from_core1(void (*rx_interrupt_hook)(int intrpt));
+void comm_init(void (*idle)(void), void (*rx_hook)(void));
+void comm_init_from_core1(void);
 
 // Send a packet.
 // Parameters:

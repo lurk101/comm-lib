@@ -16,8 +16,8 @@
 ; OUT pin 0 and side-set pin 0 are both mapped to UART TX pin.
 
     pull     side 1 [BIT_CLKS-1] ; Assert stop bit, or stall with line in idle state
-    set  x,7 side 0 [BIT_CLKS-1] ; Preload bit counter, assert start bit for 8 clocks
-loop:                            ; This loop will run 8 times (32n1 UART)
+    set  x,7 side 0 [BIT_CLKS-1] ; Preload bit counter, assert start bit for BIT_CLKS clocks
+loop:                            ; This loop will run 8 times (8x4n1 UART)
     out  pins,4                  ; Shift 4 bits from OSR to the OUT pins
     jmp  x-- loop   [BIT_CLKS-2] ; Each loop iteration is 8 cycles.
 
@@ -29,7 +29,7 @@ loop:                            ; This loop will run 8 times (32n1 UART)
 
     wait 0 pin 0                      ; Wait for start bit
     set  x,7  [BIT_CLKS+BIT_CLKS/2-2] ; Preload bit counter, delay until eye of first data bit
-loop:                                 ; Loop 32 times
+loop:                                 ; Loop 8 times
     in   pins,4                       ; Sample data
-    jmp  x-- loop        [BIT_CLKS-2] ; Each iteration is 8 cycles
+    jmp  x-- loop        [BIT_CLKS-2] ; Each iteration is BIT_CLKS cycles
 
